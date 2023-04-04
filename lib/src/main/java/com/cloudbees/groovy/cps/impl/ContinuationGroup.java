@@ -16,14 +16,10 @@ import groovy.lang.Script;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import javax.annotation.CheckReturnValue;
-import org.codehaus.groovy.runtime.InvokerInvocationException;
-import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import org.codehaus.groovy.runtime.callsite.CallSite;
 
 /**
@@ -143,9 +139,9 @@ abstract class ContinuationGroup implements Serializable {
               to show how the actual execution happened on JVM
          */
 
-        List<StackTraceElement> orig = List.of(ts);
+        List<StackTraceElement> orig = Arrays.asList(ts);
         int pos = ts.length-rs.length;
-        List<StackTraceElement> stack = new ArrayList<>(orig.subList(0,pos));
+        List<StackTraceElement> stack = new ArrayList<StackTraceElement>(orig.subList(0,pos));
 
         stack.add((loc!=null ? loc : UNKNOWN).toStackTrace());
         e.buildStackTraceElements(stack,Integer.MAX_VALUE);
@@ -209,42 +205,6 @@ abstract class ContinuationGroup implements Serializable {
     protected Next throwException(Env e, Throwable t, SourceLocation loc, ReferenceStackTrace ref) {
         fixupStackTrace(e, t,loc, ref);
         return e.getExceptionHandler(t.getClass()).receive(t);
-    }
-
-    /**
-     * Casts the result of the given value to a Boolean using {@link Invoker#cast}.
-     *
-     * @param value
-     *      The value to cast
-     * @param e
-     *      {@link Env} whose {@link Invoker} will be used to perform the cast
-     * @param fn
-     *      The {@link Next}-returning function that the resulting boolean will be applied to
-     */
-    protected Next castToBoolean(Object value, Env e, Function<Boolean, Next> fn) {
-        try {
-            Object result = e.getInvoker().cast(value, Boolean.class, false, false, false);
-            // Invoker.cast with coerce=false uses DefaultTypeTransformation.castToType, which may return null, as
-            // opposed to DefaultTypeTransformation.castToBoolean which we are trying to mimic.
-            boolean b = Boolean.TRUE.equals(result);
-            return fn.apply(b);
-        } catch (Throwable t) {
-            // It should not be possible to receive a top-level CpsCallableInvocation here.
-            if (t instanceof InvokerInvocationException) {
-                // DefaultTypeTransformation calls asBoolean via InvokerHelper, which wraps all thrown exceptions
-                // in InvokerInvocationException. CpsCallableInvocation in this context has always resulted in
-                // "Unexpected exception in CPS VM thread", so there is no need to attempt to recover by invoking
-                // the callable.
-                Throwable cause = t.getCause();
-                if (cause instanceof CpsCallableInvocation) {
-                    CpsCallableInvocation inv = (CpsCallableInvocation)cause;
-                    inv.checkMismatch(ScriptBytecodeAdapter.class, List.of("castToType"));
-                    String classAndMethod = inv.getClassAndMethodForDisplay();
-                    t = new IllegalStateException(classAndMethod + " must be @NonCPS; see: https://jenkins.io/redirect/pipeline-cps-method-mismatches/");
-                }
-            }
-            return throwException(e, t, null, new ReferenceStackTrace());
-        }
     }
 
     private static final long serialVersionUID = 1L;

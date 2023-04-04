@@ -5,6 +5,7 @@ import com.cloudbees.groovy.cps.Continuation;
 import com.cloudbees.groovy.cps.Env;
 import com.cloudbees.groovy.cps.Next;
 import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
+import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
 
 /**
  * assert exp : msg;
@@ -35,12 +36,10 @@ public class AssertBlock implements Block {
         }
 
         public Next jump(Object cond) {
-            return castToBoolean(cond, e, b -> {
-                if (b)
-                    return k.receive(null);
-                else
-                    return then(msg, e, fail);
-            });
+            if (DefaultTypeTransformation.castToBoolean(cond))
+                return k.receive(null);
+            else
+                return then(msg, e, fail);
         }
 
         public Next fail(Object msg) {

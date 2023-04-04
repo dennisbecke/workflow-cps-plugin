@@ -7,7 +7,6 @@ import com.cloudbees.groovy.cps.impl.AttributeAccessBlock;
 import com.cloudbees.groovy.cps.impl.BlockScopedBlock;
 import com.cloudbees.groovy.cps.impl.BreakBlock;
 import com.cloudbees.groovy.cps.impl.CallSiteBlock;
-import com.cloudbees.groovy.cps.impl.CastBlock;
 import com.cloudbees.groovy.cps.impl.ClosureBlock;
 import com.cloudbees.groovy.cps.impl.ConstantBlock;
 import com.cloudbees.groovy.cps.impl.ContinueBlock;
@@ -32,8 +31,6 @@ import com.cloudbees.groovy.cps.impl.PropertyAccessBlock;
 import com.cloudbees.groovy.cps.impl.ReturnBlock;
 import com.cloudbees.groovy.cps.impl.SequenceBlock;
 import com.cloudbees.groovy.cps.impl.SourceLocation;
-import com.cloudbees.groovy.cps.impl.SpreadBlock;
-import com.cloudbees.groovy.cps.impl.SpreadMapBlock;
 import com.cloudbees.groovy.cps.impl.StaticFieldBlock;
 import com.cloudbees.groovy.cps.impl.SuperBlock;
 import com.cloudbees.groovy.cps.impl.SwitchBlock;
@@ -51,6 +48,9 @@ import org.codehaus.groovy.runtime.ScriptBytecodeAdapter;
 import java.util.*;
 
 import static com.cloudbees.groovy.cps.Block.*;
+import static java.util.Arrays.*;
+import org.codehaus.groovy.ast.expr.CastExpression;
+import org.kohsuke.groovy.sandbox.impl.Checker;
 
 /**
  * Builder pattern for constructing {@link Block}s into a tree.
@@ -78,7 +78,7 @@ public class Builder {
     private Collection<CallSiteTag> combine(Collection<CallSiteTag> a, Collection<CallSiteTag> b) {
         if (a.isEmpty())    return b;
         if (b.isEmpty())    return a;
-        Collection<CallSiteTag> all = new ArrayList<>(a);
+        Collection<CallSiteTag> all = new ArrayList<CallSiteTag>(a);
         all.addAll(b);
         return all;
     }
@@ -99,7 +99,7 @@ public class Builder {
      * @see Invoker#contextualize(CallSiteBlock)
      */
     public Builder contextualize(CallSiteTag... tags) {
-        return new Builder(this,List.of(tags));
+        return new Builder(this,Arrays.asList(tags));
     }
 
     /**
@@ -239,7 +239,6 @@ public class Builder {
     /**
      * Assignment operator to a local variable, such as {@code x += 3}
      */
-    // TODO: I think this is only used in tests.
     public Block localVariableAssignOp(int line, String name, String operator, Block rhs) {
         return setLocalVariable(line, name, functionCall(line, localVariable(line, name), operator, rhs));
     }
@@ -288,7 +287,7 @@ public class Builder {
     }
 
     public Block tryCatch(Block body, Block finally_, CatchExpression... catches) {
-        return tryCatch(body, List.of(catches), finally_);
+        return tryCatch(body, asList(catches), finally_);
     }
 
 
@@ -582,29 +581,31 @@ public class Builder {
      * Cast to type.
      *
      * @param coerce
-     *      If true, the cast will use ScriptBytecodeAdapter.asType. If false, it will use ScriptBytecodeAdapter.castToType.
-     *      Both methods are very willing to coerce their values to other types, so the name is a bit misleading.
-     *      Generally speaking, Groovy will use coerce=true for casts using the "as" operator, whereas coerce=false will
-     *      be used in all other cases, such as Java-syntax casts and implicit casts inserted by the Groovy runtime.
+     *      True for {@code exp as type} cast. false for {@code (type)exp} cast.
      */
     public Block cast(int line, Block block, Class type, boolean coerce) {
-        return new CastBlock(loc(line), tags, block, type, false, coerce, false);
+        return staticCall(line,ScriptBytecodeAdapter.class,
+                coerce ? "asType" : "castToType",
+                block,constant(type));
     }
 
     /**
-     * @deprecated Just for compatibility with old scripts; prefer {@link #cast}
+     * @deprecated Just for compatibility with old scripts; prefer {@link #sandboxCastOrCoerce}
      */
     @Deprecated
     public Block sandboxCast(int line, Block block, Class<?> type, boolean ignoreAutoboxing, boolean strict) {
-        return cast(line, block, type, true);
+        return sandboxCastOrCoerce(line, block, type, ignoreAutoboxing, true, strict);
     }
 
     /**
-     * @deprecated Just for compatibility with old scripts; prefer {@link #cast}
+     * Cast to type when {@link CastExpression#isCoerce} from {@link SandboxCpsTransformer}.
      */
-    @Deprecated
+    // TODO should ideally be defined in some sandbox-specific subtype of Builder
     public Block sandboxCastOrCoerce(int line, Block block, Class<?> type, boolean ignoreAutoboxing, boolean coerce, boolean strict) {
-        return cast(line, block, type, coerce);
+        return staticCall(line, Checker.class,
+                "checkedCast",
+                constant(type), block,
+                constant(ignoreAutoboxing), constant(coerce), constant(strict));
     }
 
     public Block instanceOf(int line, Block value, Block type) {
@@ -722,7 +723,7 @@ public class Builder {
      * @see #case_(int, Block, Block)
      */
     public Block switch_(String label, Block switchExp, Block defaultStmt, CaseExpression... caseExps) {
-        return new SwitchBlock(label, switchExp, defaultStmt, List.of(caseExps));
+        return new SwitchBlock(label, switchExp, defaultStmt, Arrays.asList(caseExps));
     }
 
     public CaseExpression case_(int line, Block matcher, Block body) {
@@ -731,14 +732,6 @@ public class Builder {
 
     public Block yield(Object o) {
         return new YieldBlock(o);
-    }
-
-    public Block spread(int line, Block list) {
-        return new SpreadBlock(loc(line), list);
-    }
-
-    public Block spreadMap(int line, Block map) {
-        return new SpreadMapBlock(loc(line), map);
     }
 
     private SourceLocation loc(int line) {
