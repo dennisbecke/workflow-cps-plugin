@@ -5,11 +5,13 @@ import com.cloudbees.groovy.cps.Continuation;
 import com.cloudbees.groovy.cps.Env;
 import com.cloudbees.groovy.cps.Next;
 import com.cloudbees.groovy.cps.sandbox.CallSiteTag;
-import edu.umd.cs.findbugs.annotations.NonNull;
-import groovy.lang.GString;
+import com.cloudbees.groovy.cps.sandbox.Invoker;
+import org.codehaus.groovy.runtime.InvokerHelper;
+import org.codehaus.groovy.runtime.MethodClosure;
+
+import javax.annotation.Nonnull;
 import java.util.Collection;
 import java.util.Collections;
-import org.codehaus.groovy.runtime.MethodClosure;
 
 /**
  * Method pointer expression: {@code LHS&.methodName}
@@ -29,7 +31,7 @@ public class MethodPointerBlock implements CallSiteBlock {
         this.tags = tags;
     }
 
-    @NonNull
+    @Nonnull
     @Override
     public Collection<CallSiteTag> getTags() {
         return tags !=null ? Collections.unmodifiableCollection(tags) : Collections.<CallSiteTag>emptySet();
@@ -63,9 +65,6 @@ public class MethodPointerBlock implements CallSiteBlock {
          * Obtain a method pointer, which is really just a {@link MethodClosure}.
          */
         public Next done(Object methodName) {
-            if (methodName instanceof GString) {
-                methodName = methodName.toString();
-            }
             return k.receive(e.getInvoker().contextualize(MethodPointerBlock.this).methodPointer(lhs, (String)methodName));
         }
 

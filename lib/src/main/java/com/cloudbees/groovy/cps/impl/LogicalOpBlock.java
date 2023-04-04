@@ -4,6 +4,7 @@ import com.cloudbees.groovy.cps.Block;
 import com.cloudbees.groovy.cps.Continuation;
 import com.cloudbees.groovy.cps.Env;
 import com.cloudbees.groovy.cps.Next;
+import org.codehaus.groovy.runtime.typehandling.DefaultTypeTransformation;
 
 /**
  * Logical operator ({@code &&} and {@code ||})
@@ -34,26 +35,20 @@ public class LogicalOpBlock implements Block {
         }
 
         public Next decide(Object lhs) {
-            return castToBoolean(lhs, e, v -> {
-                if (and) {
-                    if (!v)     return k.receive(false);    // false && ...
-                    else        return then(rhs,e,castRhs);
-                } else {
-                    if (v)      return k.receive(true);    // true || ...
-                    else        return then(rhs,e,castRhs);
-                }
-            });
-        }
-
-        public Next castRhs(Object rhs) {
-            return castToBoolean(rhs, e, k::receive);
+            boolean v = DefaultTypeTransformation.castToBoolean(lhs);
+            if (and) {
+                if (!v)     return k.receive(false);    // false && ...
+                else        return then(rhs,e,k);
+            } else {
+                if (v)      return k.receive(true);    // true || ...
+                else        return then(rhs,e,k);
+            }
         }
 
         private static final long serialVersionUID = 1L;
     }
 
     static final ContinuationPtr decide = new ContinuationPtr(ContinuationImpl.class,"decide");
-    static final ContinuationPtr castRhs = new ContinuationPtr(ContinuationImpl.class,"castRhs");
 
     private static final long serialVersionUID = 1L;
 }

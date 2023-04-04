@@ -7,7 +7,6 @@ import com.cloudbees.groovy.cps.Env;
 import com.cloudbees.groovy.cps.Next;
 import com.cloudbees.groovy.cps.sandbox.CallSiteTag;
 
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -42,7 +41,6 @@ public class FunctionCallBlock extends CallSiteBlockSupport {
 
     private final boolean safe;
 
-    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "Block array is constructed during compilation, is not mutated, and is never exposed")
     public FunctionCallBlock(SourceLocation loc, Collection<CallSiteTag> tags, Block lhsExp, Block nameExp, boolean safe, Block[] argExps) {
         super(tags);
         this.loc = loc;
@@ -92,15 +90,14 @@ public class FunctionCallBlock extends CallSiteBlockSupport {
             if (args.length>idx)
                 return then(argExps[idx],e,fixArg);
             else {
-                Object[] expandedArgs = SpreadBlock.despreadList(args);
                 if (name.equals("<init>")) {
                     // constructor call
                     Object v;
                     try {
-                        v = e.getInvoker().contextualize(FunctionCallBlock.this).constructorCall((Class)lhs, expandedArgs);
+                        v = e.getInvoker().contextualize(FunctionCallBlock.this).constructorCall((Class)lhs,args);
                     } catch (Throwable t) {
                         if (t instanceof CpsCallableInvocation) {
-                            ((CpsCallableInvocation) t).checkMismatch(lhs, List.of(name));
+                            ((CpsCallableInvocation) t).checkMismatch(lhs, Collections.singletonList(name));
                         }
                         return throwException(e, t, loc, new ReferenceStackTrace());
                     }
@@ -113,7 +110,7 @@ public class FunctionCallBlock extends CallSiteBlockSupport {
                     if (safe && lhs == null) {
                         return k.receive(null);
                     } else {
-                        return methodCall(e, loc, k, FunctionCallBlock.this, lhs, name, expandedArgs);
+                        return methodCall(e, loc, k, FunctionCallBlock.this, lhs, name, args);
                     }
                 }
             }
@@ -126,11 +123,11 @@ public class FunctionCallBlock extends CallSiteBlockSupport {
      * Insert the logical CPS stack trace in front of the actual stack trace.
      */
     private void fillInStackTrace(Env e, Throwable t) {
-        List<StackTraceElement> stack = new ArrayList<>();
+        List<StackTraceElement> stack = new ArrayList<StackTraceElement>();
         stack.add((loc!=null ? loc : UNKNOWN).toStackTrace());
         e.buildStackTraceElements(stack,Integer.MAX_VALUE);
         stack.add(Continuable.SEPARATOR_STACK_ELEMENT);
-        stack.addAll(List.of(t.getStackTrace()));
+        stack.addAll(Arrays.asList(t.getStackTrace()));
         t.setStackTrace(stack.toArray(new StackTraceElement[stack.size()]));
     }
 

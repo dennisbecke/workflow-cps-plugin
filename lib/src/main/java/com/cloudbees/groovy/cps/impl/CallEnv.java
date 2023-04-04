@@ -6,7 +6,8 @@ import com.cloudbees.groovy.cps.Env;
 import com.cloudbees.groovy.cps.Next;
 import com.cloudbees.groovy.cps.sandbox.Invoker;
 import com.google.common.collect.Maps;
-import edu.umd.cs.findbugs.annotations.CheckForNull;
+
+import javax.annotation.Nullable;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -33,7 +34,7 @@ import java.util.Map;
     /**
      * Source location of the call site.
      */
-    @CheckForNull
+    @Nullable
     private final SourceLocation callSiteLoc;
 
     private Invoker invoker;
@@ -73,7 +74,7 @@ import java.util.Map;
     /** Used when we are actually going to mutate the types info */
     protected Map<String,Class> getTypesForMutation() {
         if (types == null || types == Collections.EMPTY_MAP) {
-            this.types = new HashMap<>(2);
+            this.types = new HashMap<String, Class>(2);
         }
         return this.types;
     }

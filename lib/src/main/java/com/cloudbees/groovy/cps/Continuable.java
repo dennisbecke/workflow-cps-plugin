@@ -1,8 +1,11 @@
 package com.cloudbees.groovy.cps;
 
+import com.cloudbees.groovy.cps.impl.ConstantBlock;
 import com.cloudbees.groovy.cps.impl.CpsCallableInvocation;
 import com.cloudbees.groovy.cps.impl.SuspendBlock;
+import com.cloudbees.groovy.cps.impl.ThrowBlock;
 import com.cloudbees.groovy.cps.sandbox.Invoker;
+import com.google.common.base.Function;
 import groovy.lang.GroovyShell;
 import groovy.lang.Script;
 
@@ -13,6 +16,9 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.cloudbees.groovy.cps.impl.SourceLocation.UNKNOWN;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import groovy.lang.Closure;
 import org.codehaus.groovy.runtime.GroovyCategorySupport;
 
@@ -24,7 +30,7 @@ import org.codehaus.groovy.runtime.GroovyCategorySupport;
 public class Continuable implements Serializable {
 
     @SuppressWarnings("rawtypes")
-    public static final List<Class> categories = List.of(
+    public static final List<Class> categories = ImmutableList.<Class>of(
         CpsDefaultGroovyMethods.class,
         CpsDefaultGroovyStaticMethods.class,
         CpsStringGroovyMethods.class);
@@ -39,6 +45,8 @@ public class Continuable implements Serializable {
      * Represents the remainder of the program to execute.
      */
     private Continuation k;
+
+    private volatile Throwable interrupt;
 
     public Continuable(Continuable src) {
         this.e = src.e;
@@ -110,6 +118,15 @@ public class Continuable implements Serializable {
     }
 
     /**
+     * Creates a shallow copy of {@link Continuable}. The copy shares
+     * all the local variables of the original {@link Continuable}, and
+     * point to the exact same point of the program.
+     */
+    public Continuable fork() {
+        return new Continuable(this);
+    }
+
+    /**
      * Prints the stack trace into the given writer, much like {@link Throwable#printStackTrace(PrintWriter)}
      */
     public void printStackTrace(PrintWriter s) {
@@ -143,12 +160,17 @@ public class Continuable implements Serializable {
      * throwing an exception
      */
     public Outcome run0(final Outcome cn, List<Class> categories) {
-        return GroovyCategorySupport.use(categories, new Closure<>(null) {
+        return GroovyCategorySupport.use(categories, new Closure<Outcome>(null) {
             @Override
             public Outcome call() {
                 Next n = cn.resumeFrom(e,k);
 
                 while(n.yield==null) {
+                    if (interrupt!=null) {
+                        // TODO: correctly reporting a source location requires every block to have the line number
+                        n = new Next(new ThrowBlock(UNKNOWN, new ConstantBlock(interrupt), true),n.e,n.k);
+                        interrupt = null;
+                    }
                     n = n.step();
                 }
 
@@ -158,6 +180,26 @@ public class Continuable implements Serializable {
                 return n.yield;
             }
         });
+    }
+
+    /**
+     * Sets a super-interrupt.
+     *
+     * <p>
+     * A super interrupt works like {@link Thread#interrupt()} that throws
+     * {@link InterruptedException}. It lets other threads interrupt the execution
+     * of {@link Continuable} by making it throw an exception.
+     *
+     * <p>
+     * Unlike {@link InterruptedException}, which only gets thrown in specific
+     * known locations, such as {@link Object#wait()}, this "super interruption"
+     * gets thrown at any point in the execution, even during {@code while(true) ;} kind of loop.
+     *
+     * <p>
+     * The
+     */
+    public void superInterrupt(Throwable t) {
+        this.interrupt = t;
     }
 
     /**
@@ -193,10 +235,68 @@ public class Continuable implements Serializable {
      * If this object represents a yet-started program, an empty list will be returned.
      */
     public List<StackTraceElement> getStackTrace() {
-        List<StackTraceElement> r = new ArrayList<>();
+        List<StackTraceElement> r = new ArrayList<StackTraceElement>();
         if (e!=null)
             e.buildStackTraceElements(r,Integer.MAX_VALUE);
         return r;
+    }
+
+    /**
+     * Ignore whatever that we've been doing, and jumps the execution to the given continuation.
+     *
+     * <p>
+     * Aside from the obvious use case of completely overwriting the state of {@link Continuable},
+     * more interesting case is
+     *
+     * Sets aside the current continuation aside, schedule the evaluation of the given block in the given environment,
+     * then when done pass the result to the given {@link Continuation}.
+     *
+     * A common pattern is for that {@link Continuation} to then resume executing the current execution that was set
+     * aside.
+     *
+     * <pre>
+     * Continuable c = ...;
+     *
+     * final Continuable pausePoint = new Continuable(c); // set aside what we were doing
+     * c.jump(bodyOfNewThread,env,new Continuation() {
+     *      public Next receive(Object o) {
+     *          // o is the result of evaluating bodyOfNewThread (the failure will go to the handler specified by 'env')
+     *          doSomethingWith(c);
+     *
+     *          if (...) {// maybe you want to yield this value, then resume from the pause point?
+     *              return Next.yield0(new Outcome(o,null),pausePoint);
+     *          }
+     *          if (...) {// maybe you want to keep going by immediately resuming from the pause point with 'o'
+     *              return Next.go0(new Outcome(o,null),pausePoint);
+     *          }
+     *
+     *          // maybe you want to halt the execution by returning
+     *          return Next.terminate0(new Outcome(o,null));
+     *      }
+     * });
+     *
+     * c.run(...); // this will start executing from 'bodyOfNewThread'
+     *
+     * </pre>
+     */
+    public void jump(Continuable c) {
+        this.e = c.e;
+        this.k = c.k;
+    }
+
+    /**
+     * Set aside what we are executing, and instead resume the next execution from the point
+     * the given 'Continuable' points to.
+     *
+     * But when that's done, instead of completing the computation, come back to executing what we set aside.
+     */
+    public void prepend(Continuable c, Function<Outcome,Outcome> mapper) {
+        // set aside where we are
+        Continuable here = new Continuable(this);
+
+        // run 'c', then when it's done, come back to 'here'
+        this.e = c.e;
+        this.k = new ConcatenatedContinuation(c.k, mapper, here);
     }
 
     /*package*/ Env getE() {

@@ -3,7 +3,8 @@ package com.cloudbees.groovy.cps.impl;
 import com.cloudbees.groovy.cps.Block;
 import com.cloudbees.groovy.cps.sandbox.CallSiteTag;
 import com.cloudbees.groovy.cps.sandbox.Invoker;
-import edu.umd.cs.findbugs.annotations.NonNull;
+
+import javax.annotation.Nonnull;
 import java.io.Serializable;
 import java.util.Collection;
 
@@ -17,5 +18,5 @@ public interface CallSiteBlock extends Serializable, Block {
     /**
      * Tags associated with this call site.
      */
-    @NonNull Collection<CallSiteTag> getTags();
+    @Nonnull Collection<CallSiteTag> getTags();
 }
